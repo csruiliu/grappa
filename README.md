@@ -60,6 +60,37 @@ For more detailed instructions on building Grappa, see [BUILD.md](BUILD.md).
 
 To run all our tests (a lengthy process) on a system using the Slurm job manager, do `make check-all-pass`. More information on testing is in [doc/testing.md](doc/testing.md).
 
+
+Build and Launch From Zero (Fork 5th.10.2016)
+-------------------------------------------------------------------------------
+
+1. Install Git by **sudo apt-get install git** 
+2. Git clone from Github to 64bit Linux Operating System (taking ubuntu 14.04LTS as an example)
+3. Install Ruby by **sudo apt-get install ruby** (version: 1.9.3 p484)
+4. Install cmake by **sudo apt-get install cmake** (version: 2.8.12.2)
+5. Install g++ by **sudo apt-get install g++** (version: 4.8.4) and make sure gcc version > 4.7.3
+6. Install mpich by **sudo apt-get install mpich** (version: 3.0.4) 
+7. Install doxygen by **sudo apt-get install doxygen** (version: 1.8.6)
+8. Download file from http://grappa.cs.washington.edu/files/grappa-third-party-downloads.tar and put it into grappa/third-party/downloads.
+9. Go to grappa, compile by command, ./configure --cc={path/to/gcc} --third-party-tarfile={path/to/grappa-third-party-downloads.tar}
+10. Go to grappa/build/Make+Release/, use make or make demo-hello_world command.
+11. Install munge by **sudo apt-get install -y libmunge-dev munge build-essential**
+12. Generate munge key and start munge daemon by **sudo /usr/sbin/create-munge-key**
+13. (1) Check /etc/init.d/munge to verify the variable USER="munge" is defined. (2) Check /etc/default/munge to verify the USER variable is not redefined to something else. (3) Check /etc/passwd to make sure the munge user exists. (4) Check to make sure you're running /etc/init.d/munge start as root. (5) edit /etc/default/munge and add **OPTIONS="--syslog --froce"**
+14. Start munge by **sudo service munge start**
+15. Install munge by **sudo apt-get install slurm-llnl**
+16. Create slurm configure file in /etc/slurm-llnl by **sudo vim slurm.conf**
+17. Copy an example configure file from SchedMD@Github.
+18. Start slurm control daemon by **sudo slurmctld -c**
+19. Start slurm daemons for each prefined nodes by **sudo slurm -c -N nodename**
+20. Check if everything is right by **sinfo**
+21. Run the demo by **srun --nodes=2 --ntasks-per-node=2 -- applications/demos/hello_world/hello_world.exe**
+
+
+
+
+
+
 Learning More
 -------------------------------------------------------------------------------
 You can learn more about Grappa's design and use in four ways:

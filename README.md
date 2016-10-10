@@ -76,13 +76,13 @@ Build and Launch From Zero (Fork 5th.10.2016)
 10. Go to grappa/build/Make+Release/, use make or make demo-hello_world command.
 11. Install munge by **sudo apt-get install -y libmunge-dev munge build-essential**
 12. Generate munge key and start munge daemon by **sudo /usr/sbin/create-munge-key**
-13. (1) Check /etc/init.d/munge to verify the variable USER="munge" is defined. (2) Check /etc/default/munge to verify the USER variable is not redefined to something else. (3) Check /etc/passwd to make sure the munge user exists. (4) Check to make sure you're running /etc/init.d/munge start as root. (5) edit /etc/default/munge and add **OPTIONS="--syslog --froce"**
+13. (1) Check /etc/init.d/munge to verify the variable USER="munge" is defined. (2) Check /etc/default/munge to verify the USER variable is not redefined to something else. (3) Check /etc/passwd to make sure the munge user exists. (4) Check to make sure you're running /etc/init.d/munge start as root. (5) edit /etc/default/munge and add **OPTIONS="--syslog --force"**
 14. Start munge by **sudo service munge start**
 15. Install munge by **sudo apt-get install slurm-llnl**
 16. Create slurm configure file in /etc/slurm-llnl by **sudo vim slurm.conf**
 17. Copy an example configure file from SchedMD@Github.
 18. Start slurm control daemon by **sudo slurmctld -c**
-19. Start slurm daemons for each prefined nodes by **sudo slurm -c -N nodename**
+19. Start slurm daemons for each prefined nodes by **sudo slurmd -c -N nodename**
 20. Check if everything is right by **sinfo**
 21. Run the demo by **srun --nodes=2 --ntasks-per-node=2 -- applications/demos/hello_world/hello_world.exe**
 

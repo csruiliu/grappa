@@ -8,8 +8,17 @@
 #include "ParallelLoop.hpp"
 #include "Metrics.hpp"
 
+
+//in SimpleMetric.hpp define global variable using grappa metric
+GRAPPA_DECLARE_METRIC(SimpleMetric<size_t>, hashmap_insert_ops);
+GRAPPA_DECLARE_METRIC(SimpleMetric<size_t>, hashmap_insert_msgs);
+GRAPPA_DECLARE_METRIC(SimpleMetric<size_t>, hashmap_lookup_ops);
+GRAPPA_DECLARE_METRIC(SimpleMetric<size_t>, hashmap_lookup_msgs);
+
 namespace Grappa{
+
     template<typename K, typename V> class HashMap {
+
 	public:
 	    struct Entry {
 		K key;
@@ -59,12 +68,12 @@ namespace Grappa{
 		    //Removes all elements from the vector
 		    entries.clear();
 		}
-	    };
+	    } GRAPPA_BLOCK_ALIGNED;
 
 	    struct Proxy {
 		//a type able to represent the size of any object in bytes
 		static const size_t LOCAL_HASH_SIZE = 1<<10;
-			;
+		HashMap* owner;
 
 		//don't need to order, so use unordered_map (c++ 11)
 		std::unordered_map<K, V> map;
@@ -103,18 +112,19 @@ namespace Grappa{
 		    for (auto& e : map) {
 			auto& k = e.first;
 			auto& v = e.second;
-			//locate the cell of maintaining this data 
+			++hashmap_insert_msgs;
+			//TODO:copy from grappa, y
 			auto cell = owner->base+owner->computeIndex(k);
 			//in SharedMessagePool.hpp, Message with payload, allocated on heap and immediately enqueued to be sent.
 			send_heap_message(cell.core(),[cell,ceg,k,v]{
 			    cell->insert(k,v);
-			    //decrement count once, if count == 0, wake all waiters.
 			    complete(ceg);
 			});
 		    }
 
 		    for (auto& e : lookups) {
 			auto k = e.first;
+			++hashmap_lookup_msgs;
 			auto re = e.second;
 			DVLOG(3) << "lookup " << k << " with re = " << re;
 			auto cell = owner->base+owner->computeIndex(k);
@@ -155,41 +165,28 @@ namespace Grappa{
 		return hasher(key) % capacity;
 	    }
 
-	    HashMap(GlobalAddress<HashMap> self, GlobalAddress<Cell> base, size_t capacity) : self(self), base(bas    e), capacity(capacity), proxy(locale_new<Proxy>(this)) {
-                //from glog, if sizeof(self) + sizeof(base) + sizeof(capacity) + sizeof(proxy) >= 2*block_size, pr    ogram stop
-                CHECK_LT(sizeof(self) + sizeof(base) + sizeof(capacity) + sizeof(proxy), 2*block_size);
-            }
+	    HashMap(GlobalAddress<HashMap> self, GlobalAddress<Cell> base, size_t capacity) : self(self), base(base), capacity(capacity), proxy(locale_new<Proxy>(this)) {
+		CHECK_LT(sizeof(self) + sizeof(base) + sizeof(capacity) + sizeof(proxy), 2*block_size);
+	    }
 
-	 public:
-             //static construction
-             HashMap():proxy(locale_new<Proxy>(this)){
-                capacity = 1<<20;
-             };
-             static GlobalAddress<HashMap> create(size_t total_capacity) {
-                //allocate memory globally for Cell
-                //auto base = global_alloc<Cell>(total_capacity);
-                //allocate memory systemtrically for HashMap
-                //auto self = symmetric_global_alloc<HashMap>();
+	public:
+	    //static construction
+	    HashMap(){};
+	    static GlobalAddress<HashMap> create(size_t total_capacity) {
+		//allocate memory globally for Cell
+		auto base = global_alloc<Cell>(total_capacity);
+		//allocate memory systemtrically for HashMap
+		auto self = symmetric_global_alloc<HashMap>();
+		//in Collective.hpp, call message (work that cannot block) on all cores, block until ack received from all. Like Grappa::on_all_cores() but does not spawn tasks on each core. Can safely be called concurrently with others.
+		call_on_all_cores([self,base,total_capacity]{
+		    new (self.localize()) HashMap(self,base,total_capacity);
+		});
+		forall(base, total_capacity, [](int64_t i, Cell& c){
+		    new (&c) Cell();
+		});
+		return self;
+	    }
 
-                HashMap<K,V> hm_init;
-                Cell cell_init;
-                auto ga_cell = make_global(&cell_init);
-                auto ga_hm = make_global(&hm_init);
-                new HashMap(ga_hm, ga_cell, total_capacity);
-                new (ga_hm) Cell();
-                //auto ga_self = make_global(&hm_init);
-                //in Collective.hpp, call message (work that cannot block) on all cores, block until ack received     from all. Like Grappa::on_all_cores() but does not spawn tasks on each core. Can safely be called concurrently wit    h others.
-                /*
-                call_on_all_cores([ga_self,base,total_capacity]{
-                    //new (self.localize()) HashMap(self,base,total_capacity);
-                    new HashMap(ga_self,base,total_capacity);
-                });
-                forall(base, total_capacity, [](int64_t i, Cell& c){
-                    new (&c) Cell();
-                });
-                */
-                return ga_hm;
-            }
 	    GlobalAddress<Cell> begin() {
 		return this->base;
 	    }
@@ -244,6 +241,7 @@ namespace Grappa{
 		    return re.isFound;
 		}
 		else {
+		    ++hashmap_lookup_msgs;
 		    auto result = delegate::call(base+computeIndex(key), [key](Cell* c){
 			return c->lookup(key);
 		    });
@@ -253,6 +251,7 @@ namespace Grappa{
 	    }
 
 	    void insert(K key, V val) {
+		++hashmap_insert_ops;
 		if(FLAGS_flat_combining) {
 		    proxy.combine([key,val](Proxy& p){
 			p.map[key] = val;
@@ -260,14 +259,16 @@ namespace Grappa{
 		    });
 		}
 		else {
+		    ++hashmap_insert_msgs;
 		    delegate::call(base+computeIndex(key), [key,val](Cell* c) {
 			c->insert(key, val);
 		    });
 		}
 	    }
-    };
+    } GRAPPA_BLOCK_ALIGNED;
 
     template<SyncMode S = SyncMode::Blocking, GlobalCompletionEvent* C = &impl::local_gce, typename K = nullptr_t, typename V = nullptr_t, typename F = nullptr_t> void insert(GlobalAddress<HashMap<K,V>> self, K key, F on_insert) {
+	++hashmap_insert_msgs;
 	delegate::call<S,C>(self->base+self->computeIndex(key), [=](typename HashMap<K,V>::Cell& c){
 	    for(auto& e : c.entries) {
 		if(e.key == key) {
